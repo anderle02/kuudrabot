@@ -1,6 +1,8 @@
-include:
-  - docker-compose.yml
 services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
   gateway:
     image: ${REGISTRY}/kuudrabot-gateway:${GATEWAY_IMAGE_TAG:-latest}
     build: null

@@ -27,9 +27,9 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
-          registry: ${{ vars.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -47,14 +47,38 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
         with:
-          node-version: 22
-      - run: npm ci --workspace=apps/worker
-      # Additive-only migrations by convention, enforced in code review.
-      - run: npx prisma migrate deploy --schema=apps/worker/prisma/schema.prisma
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Set up SSH and Docker context
         env:
-          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          docker context create production --docker "host=ssh://deploy@$SSH_HOST" || true
+          docker context use production
+
+      - name: Run migrations inside the stack's network
+        env:
+          WORKER_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          REGISTRY: ${{ vars.REGISTRY }}
+          POSTGRES_USER: bot
+          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
+          POSTGRES_DB: kuudrabot
+        run: |
+          docker run --rm --network kuudrabot_default \
+            -e DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}" \
+            ${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG} \
+            npx prisma migrate deploy --schema=apps/worker/prisma/schema.prisma
 
   deploy:
     needs: migrate
@@ -63,25 +87,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Set up SSH and Docker context
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          docker context create production --docker "host=ssh://deploy@$SSH_HOST" || true
+          docker context use production
+
       - name: Rolling zero-downtime update of worker only
         env:
           WORKER_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          GATEWAY_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           REGISTRY: ${{ vars.REGISTRY }}
-          DOCKER_HOST: ${{ secrets.PROD_DOCKER_HOST }}
+          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          DISCORD_APPLICATION_ID: ${{ vars.DISCORD_APPLICATION_ID }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          HYPIXEL_API_KEY: ${{ secrets.HYPIXEL_API_KEY }}
+          LOG_LEVEL: info
         run: |
-          docker --context production stack deploy \
+          docker stack deploy \
             -c docker/docker-compose.yml \
             -c docker/docker-compose.prod.yml \
             kuudrabot
 
       - name: Wait for rollout to converge
-        env:
-          DOCKER_HOST: ${{ secrets.PROD_DOCKER_HOST }}
-        run: |
-          docker --context production service update --detach=false kuudrabot_worker
+        run: docker service update --detach=false kuudrabot_worker
 
       - name: Rollback on failure
         if: failure()
-        env:
-          DOCKER_HOST: ${{ secrets.PROD_DOCKER_HOST }}
-        run: docker --context production service rollback kuudrabot_worker
+        run: docker service rollback kuudrabot_worker

@@ -30,8 +30,14 @@ services:
       context: ..
       dockerfile: apps/gateway/Dockerfile
     restart: unless-stopped
-    env_file:
-      - ../.env
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID}
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEALTHCHECK_PORT: 8080
+      NODE_ENV: production
     depends_on:
       redis:
         condition: service_healthy
@@ -46,8 +52,14 @@ services:
       context: ..
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
-    env_file:
-      - ../.env
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      HYPIXEL_API_KEY: ${HYPIXEL_API_KEY}
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://bot:${POSTGRES_PASSWORD}@postgres:5432/kuudrabot
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEALTHCHECK_PORT: 8080
+      NODE_ENV: production
     depends_on:
       redis:
         condition: service_healthy
