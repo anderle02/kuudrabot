@@ -1,0 +1,90 @@
+name: CI
+
+# Runs on every PR, including from forks. Uses sandbox secrets only.
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Community pull requests are only allowed to touch apps/worker (and its own tests).
+  restrict-pr-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail if PR touches restricted paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -E '^(apps/gateway/|packages/shared/)'; then
+            echo "This PR modifies apps/gateway or packages/shared, which are maintained by @anderle02 only."
+            echo "Please open an issue instead if you think a change is needed there."
+            exit 1
+          fi
+
+  lint-typecheck-test:
+    needs: restrict-pr-scope
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [apps/worker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate --if-present
+      - run: npm run lint --workspace=${{ matrix.workspace }}
+      - run: npm run typecheck --workspace=${{ matrix.workspace }}
+      - run: npm test --workspace=${{ matrix.workspace }}
+
+  sandbox-test:
+    needs: [restrict-pr-scope, lint-typecheck-test]
+    runs-on: ubuntu-latest
+    environment: sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build worker image (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          target: production
+          push: false
+          load: true
+          tags: kuudrabot-worker:pr-${{ github.event.pull_request.number }}
+
+      - name: Boot sandbox stack (redis + postgres + worker only)
+        env:
+          DISCORD_TOKEN: ${{ secrets.SANDBOX_DISCORD_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.SANDBOX_DISCORD_GUILD_ID }}
+          HYPIXEL_API_KEY: ${{ secrets.SANDBOX_HYPIXEL_API_KEY }}
+        run: |
+          docker compose -f docker/docker-compose.yml up -d redis postgres
+          docker run -d --name worker-sandbox-test --network host \
+            -e DISCORD_TOKEN -e DISCORD_GUILD_ID -e HYPIXEL_API_KEY \
+            kuudrabot-worker:pr-${{ github.event.pull_request.number }}
+
+      - name: Wait for worker health check
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fs http://localhost:8080/health; then exit 0; fi
+            sleep 3
+          done
+          echo "Worker never became healthy" && exit 1
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker logs worker-sandbox-test

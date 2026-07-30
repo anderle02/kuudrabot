@@ -1,0 +1,28 @@
+include:
+  - docker-compose.yml
+services:
+  gateway:
+    image: ${REGISTRY}/kuudrabot-gateway:${GATEWAY_IMAGE_TAG:-latest}
+    build: null
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: stop-first # single persistent gateway connection, never run two at once
+
+  worker:
+    image: ${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG}
+    build: null
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first # start new worker, wait for healthy, then stop old one
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        order: stop-first

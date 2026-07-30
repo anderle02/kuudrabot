@@ -1,0 +1,24 @@
+include:
+  - docker-compose.yml
+
+services:
+  redis:
+    ports:
+      - "6379:6379"
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  gateway:
+    build:
+      target: development
+    command: npm run dev --workspace=apps/gateway
+    volumes:
+      - ../apps/gateway:/app/apps/gateway
+      - ../packages/shared:/app/packages/shared
+      - /app/node_modules
+    environment:
+      # overwrite urls so they are accessible from inside the gateway container
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://bot:bot@postgres:5432/kuudrabot
