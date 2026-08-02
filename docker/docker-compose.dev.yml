@@ -28,3 +28,7 @@ services:
       - ../apps/worker:/app/apps/worker
       - ../packages/shared:/app/packages/shared
       - /app/node_modules
+
+networks:
+  default:
+    driver: bridge

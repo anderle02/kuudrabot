@@ -38,7 +38,7 @@ Next, create a test Discord bot [here](https://discord.com/developers/home) and 
 Next, make sure that Docker is running and start Redis, Postgres and the Gateway:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml up -d redis postgres gateway --build
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d redis postgres gateway --build
 ```
 
 Now you can start developing the `worker`:
