@@ -49,16 +49,16 @@ jobs:
       - run: npm run typecheck --workspace=apps/worker
       - run: npm test --workspace=apps/worker
 
-#  codeql:
-#    needs: restrict-pr-scope
-#    runs-on: ubuntu-latest
-#    permissions:
-#      security-events: write
-#      contents: read
-#    steps:
-#      - uses: actions/checkout@v7
-#      - uses: github/codeql-action/init@v4
-#        with:
-#          languages: javascript-typescript
-#          queries: security-extended
-#      - uses: github/codeql-action/analyze@v4
+  codeql:
+    needs: restrict-pr-scope
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v4
