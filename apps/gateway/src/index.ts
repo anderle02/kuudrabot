@@ -1,12 +1,8 @@
-import {
-  RedisGateway,
-  PubSubRedisBroker,
-  kUseRandomGroupName,
-} from "@discordjs/brokers";
+import { PubSubRedisBroker, RedisGateway, kUseRandomGroupName } from "@discordjs/brokers";
 import { WebSocketManager, WebSocketShardEvents } from "@discordjs/ws";
 import { env, redis, rest } from "@kuudrabot/shared";
-import { logger } from "./logger.js";
 import { startHealthServer } from "./health.js";
+import { logger } from "./logger.js";
 
 // Random group name: we don't want work-balancing on gateway_send events.
 const broker = new PubSubRedisBroker(redis, {
@@ -25,13 +21,10 @@ gateway.on(
   (...data) => void broker.publish(...RedisGateway.toPublishArgs(data)),
 );
 
-broker.on(
-  RedisGateway.GatewaySendEvent,
-  async ({ data: { payload, shardId }, ack }) => {
-    await gateway.send(shardId, payload);
-    await ack();
-  },
-);
+broker.on(RedisGateway.GatewaySendEvent, async ({ data: { payload, shardId }, ack }) => {
+  await gateway.send(shardId, payload);
+  await ack();
+});
 
 startHealthServer();
 await broker.subscribe([RedisGateway.GatewaySendEvent]);
