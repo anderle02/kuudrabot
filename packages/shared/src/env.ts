@@ -13,6 +13,7 @@ const EnvSchema = z.object({
   REDIS_URL: z.url(),
   LOG_LEVEL: z.string().default("info"),
   HEALTHCHECK_PORT: z.coerce.number().default(8080),
+  SHARD_COUNT: z.number().default(1),
 });
 
 export const env = EnvSchema.parse(process.env);
