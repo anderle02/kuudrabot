@@ -1,44 +1,45 @@
 name: Deploy Worker
 
-# Only runs post-merge on main. Must be approved by maintainers (see CODEOWNERS).
 on:
   push:
     branches: [main]
     paths:
       - "apps/worker/**"
       - "packages/shared/**"
-      - "docker/docker-compose.prod.yml"
 
 concurrency:
   group: deploy-worker
-  cancel-in-progress: false # never cancel an in-flight production rollout
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     environment: production
     outputs:
-      image_tag: ${{ steps.meta.outputs.tag }}
+      image_tag: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
-      - id: meta
-        run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/worker/Dockerfile
           target: production
           push: true
           tags: |
-            ${{ vars.REGISTRY }}/kuudrabot-worker:${{ steps.meta.outputs.tag }}
+            ${{ vars.REGISTRY }}/kuudrabot-worker:${{ github.sha }}
             ${{ vars.REGISTRY }}/kuudrabot-worker:latest
 
   migrate:
@@ -46,10 +47,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -67,32 +68,46 @@ jobs:
           docker context create production --docker "host=ssh://deploy@$SSH_HOST" || true
           docker context use production
 
-      - name: Run migrations inside the stack's network
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run database migrations
         env:
           WORKER_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           REGISTRY: ${{ vars.REGISTRY }}
-          POSTGRES_USER: bot
           POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
-          POSTGRES_DB: kuudrabot
         run: |
           docker run --rm --network kuudrabot_default \
-            -e DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}" \
+            -e DATABASE_URL="postgresql://bot:${POSTGRES_PASSWORD}@postgres:5432/kuudrabot" \
             ${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG} \
             npx prisma migrate deploy --schema=apps/worker/prisma/schema.prisma
 
   deploy:
-    needs: migrate
+    needs:
+      - build-and-push
+      - migrate
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up SSH and Docker context
         env:
@@ -106,26 +121,29 @@ jobs:
           docker context create production --docker "host=ssh://deploy@$SSH_HOST" || true
           docker context use production
 
-      - name: Rolling zero-downtime update of worker only
+      - name: Deploy worker (zero downtime)
         env:
           WORKER_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-          GATEWAY_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           REGISTRY: ${{ vars.REGISTRY }}
-          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
-          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-          DISCORD_APPLICATION_ID: ${{ vars.DISCORD_APPLICATION_ID }}
-          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
-          HYPIXEL_API_KEY: ${{ secrets.HYPIXEL_API_KEY }}
-          LOG_LEVEL: info
         run: |
-          docker stack deploy \
-            -c docker/docker-compose.yml \
-            -c docker/docker-compose.prod.yml \
-            kuudrabot
+          IMAGE="${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG}"
+          echo "Deploying image: $IMAGE"
+          docker service update \
+            --image "$IMAGE" \
+            --with-registry-auth \
+            --detach=false \
+            kuudrabot_worker
 
-      - name: Wait for rollout to converge
-        run: docker service update --detach=false kuudrabot_worker
-
-      - name: Rollback on failure
-        if: failure()
-        run: docker service rollback kuudrabot_worker
+      - name: Verify deployed image matches intended tag
+        env:
+          WORKER_IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          REGISTRY: ${{ vars.REGISTRY }}
+        run: |
+          ACTUAL=$(docker service inspect kuudrabot_worker --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')
+          EXPECTED="${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG}"
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          if [[ "$ACTUAL" != "$EXPECTED"* ]]; then
+            echo "Deployment failed, service rolled back to previous image"
+            exit 1
+          fi

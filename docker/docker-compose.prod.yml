@@ -5,24 +5,21 @@ services:
 
   gateway:
     image: ${REGISTRY}/kuudrabot-gateway:${GATEWAY_IMAGE_TAG:-latest}
-    build: null
     deploy:
       replicas: 1
       restart_policy:
         condition: on-failure
-      update_config:
-        order: stop-first # single persistent gateway connection, never run two at once
 
   worker:
-    image: ${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG}
-    build: null
+    image: ${REGISTRY}/kuudrabot-worker:${WORKER_IMAGE_TAG:-latest}
     deploy:
-      replicas: 2
+      replicas: 1
       restart_policy:
         condition: on-failure
+        delay: 5s
       update_config:
         parallelism: 1
-        order: start-first # start new worker, wait for healthy, then stop old one
+        order: start-first
         failure_action: rollback
         delay: 10s
       rollback_config:

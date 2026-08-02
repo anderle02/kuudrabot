@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  restrict-pr-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            restricted:
+              - '!apps/worker/**'
+      - name: Fail if PR touches restricted paths
+        if: steps.filter.outputs.restricted == 'true'
+        run: |
+          echo "This PR modifies files outside apps/worker."
+          exit 1
+
+  lint-typecheck-test:
+    needs: restrict-pr-scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate --if-present
+        env:
+          # prisma generate needs a database url for some reason?
+          DATABASE_URL: "postgresql://dummy:url@localhost:5432/dummy"
+      - run: npm run lint --workspace=apps/worker
+      - run: npm run typecheck --workspace=apps/worker
+      - run: npm test --workspace=apps/worker
+
+#  codeql:
+#    needs: restrict-pr-scope
+#    runs-on: ubuntu-latest
+#    permissions:
+#      security-events: write
+#      contents: read
+#    steps:
+#      - uses: actions/checkout@v7
+#      - uses: github/codeql-action/init@v4
+#        with:
+#          languages: javascript-typescript
+#          queries: security-extended
+#      - uses: github/codeql-action/analyze@v4
