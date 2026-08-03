@@ -16,6 +16,7 @@
     "@discordjs/core": "^2.6.0",
     "@discordjs/rest": "^2.6.3",
     "@kuudrabot/shared": "^0.1.0",
+    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "hypixel-api-reborn": "^11.3.7",
     "ioredis": "^5.11.1",
