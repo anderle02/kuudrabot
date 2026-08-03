@@ -64,6 +64,8 @@ All features are developed inside `apps/worker/src`. If you want, focus on just 
 
 ### Pull request checklist
 
+Please try to keep your PR to one specific feature and don't try to rewrite the complete worker in one PR. This makes it easier for me to review it quickly and get it deployed.
+
 Before opening a PR, confirm:
 
 - your feature / change is actually wanted by the Kuudra Gang community, confirm with the staff team if unsure
@@ -74,7 +76,7 @@ Before opening a PR, confirm:
 
 ### Review & merge process
 
-1. Open PR against `main`. `ci.yml` runs lint, typecheck, unit tests, and does a sandbox test with the built worker image.
+1. Open PR against `main`. `ci.yml` runs lint, typecheck and unit tests.
 2. At least two maintainer approvals are required (see `CODEOWNERS`). We will try to do this as fast as possible.
 3. On merge, `deploy.yml` automatically builds and rolls out the new worker image with zero downtime.
 
