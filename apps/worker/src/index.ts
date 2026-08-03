@@ -1,4 +1,4 @@
-import { PubSubRedisBroker, RedisBrokerDiscordEvents, RedisGateway } from "@discordjs/brokers";
+import { PubSubRedisBroker, type RedisBrokerDiscordEvents, RedisGateway } from "@discordjs/brokers";
 import { Client, GatewayDispatchEvents } from "@discordjs/core";
 import { env, redis, rest } from "@kuudrabot/shared";
 import { deployCommands, registerCommands } from "./commands/commandRegistry.js";

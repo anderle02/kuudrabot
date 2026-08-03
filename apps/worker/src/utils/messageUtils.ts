@@ -5,21 +5,45 @@ import {
   type APIApplicationCommandInteraction,
   type APISeparatorComponent,
   type APITextDisplayComponent,
+  type CreateInteractionResponseOptions,
+  type EditInteractionResponseOptions,
 } from "@discordjs/core";
 import config from "../config.js";
 
-export type ReplyWithEmbedOptions = {
+export type RespondWithEmbedOptions = {
   /** Message will be invisible to anyone except the executing user. */
   ephemeral?: boolean;
   /** Will add a ⚠️ to the message and change the color to config.colors.error */
   isError?: boolean;
 };
 
+/** Reply to an interaction. Make sure the interaction has NOT been replied to or deferred before. */
 export async function replyWithEmbed(
   interaction: APIApplicationCommandInteraction,
-  api: API,
+  discord: API,
   messages: Array<string>,
-  options?: ReplyWithEmbedOptions,
+  options?: RespondWithEmbedOptions,
+) {
+  respondWithEmbed(interaction, discord, messages, false, options);
+}
+
+/** Reply to an interaction. Make sure the interaction HAS been replied to or deferred before. */
+export async function editReplyWithEmbed(
+  interaction: APIApplicationCommandInteraction,
+  discord: API,
+  messages: Array<string>,
+  options?: RespondWithEmbedOptions,
+) {
+  respondWithEmbed(interaction, discord, messages, true, options);
+}
+
+/** Either reply or editReply to an interaction. */
+async function respondWithEmbed(
+  interaction: APIApplicationCommandInteraction,
+  discord: API,
+  messages: Array<string>,
+  edit: boolean,
+  options?: RespondWithEmbedOptions,
 ) {
   const components = new Array<APITextDisplayComponent | APISeparatorComponent>();
 
@@ -38,7 +62,7 @@ export async function replyWithEmbed(
     });
   }
 
-  await api.interactions.reply(interaction.id, interaction.token, {
+  const payload = {
     components: [
       {
         type: ComponentType.Container,
@@ -47,5 +71,19 @@ export async function replyWithEmbed(
       },
     ],
     flags: MessageFlags.IsComponentsV2 | (options?.ephemeral ? MessageFlags.Ephemeral : 0),
-  });
+  };
+
+  if (edit) {
+    await discord.interactions.editReply(
+      interaction.application_id,
+      interaction.token,
+      payload as EditInteractionResponseOptions,
+    );
+  } else {
+    await discord.interactions.reply(
+      interaction.id,
+      interaction.token,
+      payload as CreateInteractionResponseOptions,
+    );
+  }
 }

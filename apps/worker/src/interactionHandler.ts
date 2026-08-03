@@ -1,4 +1,4 @@
-import { APIInteraction, InteractionType, ToEventProps } from "@discordjs/core";
+import { type APIInteraction, InteractionType, type ToEventProps } from "@discordjs/core";
 import {
   isChatInputApplicationCommandInteraction,
   isGuildInteraction,
