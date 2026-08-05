@@ -2,6 +2,7 @@ import {
   type APIApplicationCommandInteractionDataStringOption,
   ApplicationCommandOptionType,
 } from "@discordjs/core";
+import assert from "node:assert";
 import { hypixel } from "../../hypixel/api.js";
 import { editReplyWithEmbed } from "../../utils/messageUtils.js";
 import type { Command } from "../types.js";
@@ -43,8 +44,15 @@ export const command: Command = {
     await discord.interactions.defer(interaction.id, interaction.token);
 
     // this should be self explanatory
-    const profiles = await hypixel.getSkyblockProfiles(ign);
-    const t5runs = profiles.find((p) => p.selected)?.me.crimson.kuudra.infernal;
+    const profiles = await hypixel.getSkyBlockProfiles(ign);
+    assert(profiles.mowojangProfile);
+    const selectedProfile = profiles.parsed.selectedProfile;
+    if (!selectedProfile) {
+      throw new Error(
+        `${profiles.mowojangProfile.username} does not have a selected SkyBlock profile`,
+      );
+    }
+    const t5runs = selectedProfile.me.crimsonIsle.kuudra.infernalCompletions;
 
     // We use EDIT reply because the interaction has been deferred
     await editReplyWithEmbed(interaction, discord, [
